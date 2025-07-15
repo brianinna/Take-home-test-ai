@@ -3,13 +3,13 @@ PDF processing module responsible for PDF type detection and text extraction.
 Uses pdfplumber to extract text and table data, especially suitable for invoice processing.
 """
 import io
-import os
-import pytesseract
-import pdfplumber
-from pathlib import Path
-from typing import Tuple, Dict, Any, List, Optional
 import logging
-from PIL import Image
+import os
+import uuid
+from typing import Dict, Any, Optional
+
+import pdfplumber
+import pytesseract
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -20,17 +20,19 @@ class PDFProcessor:
     """
     PDF processor responsible for detecting PDF type (scanned/digital) and extracting text.
     """
-    
-    def __init__(self, tesseract_path: Optional[str] = None):
+
+    def __init__(self, tesseract_path: Optional[str] = None, use_vision_api: bool = False):
         """
         Initialize PDF processor。
         
         Args:
-            tesseract_path: Tesseract OCR引擎的安装路径（可选）
+            tesseract_path: Tesseract OCR
+            use_vision_api: use llm to handle the data
         """
         if tesseract_path:
             pytesseract.pytesseract.tesseract_cmd = tesseract_path
-    
+        self.use_vision_api = use_vision_api
+
     def process_pdf(self, file_content: bytes) -> Dict[str, Any]:
         """
         Process PDF file, detect type and extract content.
@@ -42,73 +44,74 @@ class PDFProcessor:
             Dictionary with the following keys:
             - is_scanned: Whether the PDF is a scanned version
             - text: Extracted text content
-            - confidence: Confidence level of text extraction
+            - images: List of image data (base64 encoded) if using vision API
             - page_count: Number of PDF pages
             - tables: Extracted table data
         """
         try:
-            # Load byte content as file object
-            temp_file_path = "temp_pdf_file.pdf"
-            with open(temp_file_path, 'wb') as f:
-                f.write(file_content)
-            
-            # Open PDF
-            with pdfplumber.open(temp_file_path) as pdf:
+            with pdfplumber.open(io.BytesIO(file_content)) as pdf:
                 # Get total page count
                 page_count = len(pdf.pages)
-                
+
                 # Otherwise extract text
                 text = ""
-                tables = []
-                
+
                 for page in pdf.pages:
                     # Extract page text
                     page_text = page.extract_text() or ""
                     text += page_text
                     text += "\n--- Page Break ---\n"
-                    
-                    # Try to extract tables
-                    try:
-                        page_tables = page.extract_tables()
-                        if page_tables:
-                            tables.extend(page_tables)
-                    except Exception as e:
-                        logger.warning(f"Table extraction error: {str(e)}")
-                
+
                 # Check if it's a scanned PDF
-                is_scanned, confidence = self._detect_scanned_pdf(pdf, text)
-                
+                is_scanned = self._detect_scanned_pdf(pdf, text)
+
                 # Handle scanned PDF
+                images = []
                 if is_scanned:
-                    text = self._extract_text_from_scanned_pdf(temp_file_path)
-            
-            # Clean up temporary file
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-            
-            return {
+                    temp_file_path = f"{uuid.uuid4()}.pdf"
+                    try:
+                        with open(temp_file_path, 'wb') as f:
+                            f.write(file_content)
+                        # convert to images
+                        pdf_images = self._convert_pdf_to_pages(temp_file_path)
+
+                        if self.use_vision_api:
+                            # base64
+                            images = self._convert_images_to_base64(pdf_images)
+                            text = "[using LLM handle the data]"
+                        else:
+                            # ocr
+                            text = self._process_images_with_ocr(pdf_images)
+                    finally:
+                        if os.path.exists(temp_file_path):
+                            os.remove(temp_file_path)
+
+            result = {
                 "is_scanned": is_scanned,
                 "text": text,
-                "confidence": confidence,
                 "page_count": page_count,
-                "tables": tables
             }
-        
+
+            if self.use_vision_api and images:
+                result["images"] = images
+
+            return result
+
         except Exception as e:
             logger.error(f"PDF processing error: {str(e)}")
             # Ensure cleaning up temporary file
             if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
             raise
-    
-    def _detect_scanned_pdf(self, pdf, extracted_text: str) -> Tuple[bool, float]:
+
+    def _detect_scanned_pdf(self, pdf, extracted_text: str) -> bool:
         """
         Detect if the PDF is a scanned version.
         
         Basic idea:
         1. Check the extracted text content
-        2. Check the text length and quality
-        3. If the text is short or of poor quality, it might be a scanned PDF
+        2. Check the text length
+        3. If the text is short or the area of the image is quite big, it might be a scanned PDF
         
         Args:
             pdf: pdfplumber PDF object
@@ -117,47 +120,30 @@ class PDFProcessor:
         Returns:
             (is_scanned, confidence) tuple:
             - is_scanned (bool): Whether the PDF is a scanned version
-            - confidence (float): Confidence level of the detection
         """
-        total_text_length = len(extracted_text)
-        text_quality_score = 0
-        
-        # Simple quality check: calculate character/word ratio
-        if total_text_length > 0:
-            words = extracted_text.split()
-            if words:
-                avg_word_length = total_text_length / len(words)
-                if 3 <= avg_word_length <= 10:  # Normal text word length range
-                    text_quality_score = 1
-        
+        # Check if there are text
+        has_text = len(extracted_text) > 10
+
         # Check if there are image elements
         has_images = False
-        
-        # Check the first 3 pages for image objects
         for i, page in enumerate(pdf.pages):
-            if i >= 3:  # Only check the first three pages
-                break
-                
+            page_area = page.width * page.height
             # If there are images
-            if page.images:
+            total_image_area = 0
+            for img in page.images:
                 has_images = True
-                break
-        
-        # Make a judgment based on text length, quality, and image presence
-        is_scanned = (total_text_length < 100) or (text_quality_score == 0 and has_images)
-        
-        # Calculate confidence level (simple version)
-        if total_text_length < 10 and has_images:
-            confidence = 0.95  # Almost no text and images, likely a scanned PDF
-        elif total_text_length < 100:
-            confidence = 0.8  # Short text, possibly a scanned PDF
-        elif text_quality_score == 0 and has_images:
-            confidence = 0.7  # Poor text quality and images, possibly a scanned PDF but some content recognized
-        else:
-            confidence = 0.9  # Enough high-quality text, possibly a digital PDF
-            
-        return is_scanned, confidence
-    
+                img_area = img.get('width', 0) * img.get('height', 0)
+                total_image_area += img_area
+            coverage_ratio = total_image_area / page_area
+            if coverage_ratio > 0.5:
+                return True
+
+        # have image and almost no text
+        if not has_text and has_images:
+            return True
+
+        return False
+
     def _extract_text_from_digital_pdf(self, pdf_path: str) -> str:
         """
         Extract text from a digital PDF.
@@ -175,42 +161,76 @@ class PDFProcessor:
                 text += page_text
                 text += "\n--- Page Break ---\n"
         return text
-    
-    def _extract_text_from_scanned_pdf(self, pdf_path: str) -> str:
+
+    def _convert_pdf_to_pages(self, pdf_path: str) -> list:
         """
-        Extract text from a scanned PDF using OCR.
+        Convert PDF to a list of PIL Image objects.
         
         Args:
             pdf_path: PDF file path
             
         Returns:
-            OCR-extracted text content
+            List of PIL Image objects
         """
         from pdf2image import convert_from_path
-        
-        text = ""
-        tables = []
-        
+
         try:
-            # First, try to extract text and tables using pdfplumber
-            with pdfplumber.open(pdf_path) as pdf:
-                # Try to extract tables (even if it's a scanned PDF, there might be structured tables)
-                for page in pdf.pages:
-                    try:
-                        page_tables = page.extract_tables()
-                        if page_tables:
-                            tables.extend(page_tables)
-                    except Exception:
-                        pass
+            # Convert PDF pages to PIL images
+            pdf_images = convert_from_path(pdf_path)
+            return pdf_images
+        except Exception as e:
+            logger.error(f"Error converting PDF to images: {str(e)}")
+            return []
+
+    def _convert_images_to_base64(self, images: list) -> list:
+        """
+        Convert PIL images to base64 encoded strings for API transmission.
+        
+        Args:
+            images: List of PIL Image objects
             
-            # Convert PDF to images and perform OCR
-            images = convert_from_path(pdf_path)
+        Returns:
+            List of dictionaries with page number, base64 data and format
+        """
+        import base64
+        from io import BytesIO
+
+        result = []
+        try:
+            # Convert each image to base64 for API transmission
+            for i, img in enumerate(images):
+                buffered = BytesIO()
+                img.save(buffered, format="PNG")
+                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                result.append({
+                    "page": i + 1,
+                    "data": img_base64,
+                    "format": "PNG"
+                })
+
+            return result
+        except Exception as e:
+            logger.error(f"Error converting images to base64: {str(e)}")
+            return []
+
+    def _process_images_with_ocr(self, images: list) -> str:
+        """
+        Extract text from images using OCR.
+        
+        Args:
+            images: List of PIL Image objects
             
+        Returns:
+            OCR-extracted text content
+        """
+        text = ""
+
+        try:
             # Process each page
             for i, image in enumerate(images):
                 # Preprocess image for OCR
                 img_array = self._preprocess_image_for_ocr(image)
-                
+
                 # Perform OCR to extract text
                 try:
                     page_text = pytesseract.image_to_string(
@@ -221,22 +241,14 @@ class PDFProcessor:
                     text += page_text
                     text += "\n--- Page Break ---\n"
                 except Exception as e:
-                    logger.error(f"OCR processing error on page {i+1}: {str(e)}")
-                    text += f"\n[OCR Error on Page {i+1}]\n"
+                    logger.error(f"OCR processing error on page {i + 1}: {str(e)}")
+                    text += f"\n[OCR Error on Page {i + 1}]\n"
         except Exception as e:
-            logger.error(f"Error converting PDF to image: {str(e)}")
-            # If conversion fails, try to extract text using pdfplumber
-            try:
-                with pdfplumber.open(pdf_path) as pdf:
-                    for page in pdf.pages:
-                        page_text = page.extract_text() or ""
-                        text += page_text
-                        text += "\n--- Page Break ---\n"
-            except Exception:
-                text = "[PDF extraction error]"
-            
+            logger.error(f"OCR processing error: {str(e)}")
+            text = "[OCR extraction error]"
+
         return text
-        
+
     def _preprocess_image_for_ocr(self, image):
         """
         Preprocess image to improve OCR quality.
@@ -249,13 +261,13 @@ class PDFProcessor:
         """
         # Convert to grayscale
         gray = image.convert('L')
-        
+
         # Can add more preprocessing steps, like binarization, noise reduction, etc.
         # from PIL import ImageOps
         # binary = ImageOps.invert(gray)
         # thresh = 200
         # fn = lambda x : 255 if x > thresh else 0
         # binary = gray.point(fn, mode='1')
-        
+
         # Return preprocessed image
         return gray
