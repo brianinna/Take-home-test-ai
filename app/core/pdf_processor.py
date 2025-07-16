@@ -107,12 +107,11 @@ class PDFProcessor:
     def _detect_scanned_pdf(self, pdf, extracted_text: str) -> bool:
         """
         Detect if the PDF is a scanned version.
-        
-        Basic idea:
-        1. Check the extracted text content
-        2. Check the text length
-        3. If the text is short or the area of the image is quite big, it might be a scanned PDF
-        
+
+        Enhanced detection logic:
+            1. Check text content quality and quantity
+            2. Check image coverage ratio
+
         Args:
             pdf: pdfplumber PDF object
             extracted_text: Extracted text

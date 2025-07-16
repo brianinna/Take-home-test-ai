@@ -24,8 +24,7 @@ class ExtractionService:
     def __init__(self):
         """Initialize extraction service"""
         # 从配置中读取是否使用多模态视觉API
-        use_vision_api = settings.USE_VISION_API
-        self.pdf_processor = PDFProcessor(use_vision_api=use_vision_api)
+        self.pdf_processor = PDFProcessor(use_vision_api=settings.USE_MULTIMODAL)
         self.llm_service = LLMService()
 
     async def process_invoice(self, file: UploadFile) -> ExtractionResponse:
@@ -53,9 +52,9 @@ class ExtractionService:
             images = pdf_result.get("images", [])
             # Use LLM to extract key information
             logger.info(
-                f"Using LLM to extract information, document type: {'scanned' if is_scanned else 'digital'}, using vision API: {settings.USE_VISION_API}")
+                f"Using LLM to extract information, document type: {'scanned' if is_scanned else 'digital'}, using vision API: {settings.USE_MULTIMODAL}")
 
-            if settings.USE_VISION_API and images and is_scanned:
+            if settings.USE_MULTIMODAL and images and is_scanned:
                 logger.info(f"Processing with vision API, found {len(images)} images")
                 extraction_result = self.llm_service.extract_invoice_data_with_images(images)
             else:

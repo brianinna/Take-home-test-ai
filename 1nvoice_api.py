@@ -7,19 +7,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Verify if environment variables are successfully loaded
-api_key = os.getenv("OPENAI_API_KEY")
-base_url = os.getenv("OPENAI_BASE_URL")
-print(f"OPENAI_API_KEY: {'Set' if api_key else 'Not set'}")
-print(f"OPENAI_BASE_URL: {base_url}")
+api_key = os.getenv("TEXT_MODEL_API_KEY")
+base_url = os.getenv("TEXT_MODEL_API_URL")
 
 # Now environment variables can be accessed via os.environ or os.getenv
 
 # --- 1. Configuration ---
 # Your FastAPI server address and endpoint
-API_URL = "http://127.0.0.1:8012/api/v1/extract"
+API_URL = "http://127.0.0.1:8000/api/v1/extract"
 
 # Path to PDF files to upload
-FILES_TO_UPLOAD = ["./Sample Invoices/invoice1.pdf","./Sample Invoices/invoice2.pdf","./Sample Invoices/invoice3.pdf","./Sample Invoices/invoice4.pdf","./Sample Invoices/invoice5.pdf"]
+FILES_TO_UPLOAD = [
+                   # "./Sample Invoices/invoice1.pdf",
+                   # "./Sample Invoices/invoice2.pdf",
+                   # "./Sample Invoices/invoice3.pdf",
+                   "./Sample Invoices/invoice6.pdf",
+                   # "./Sample Invoices/invoice5.pdf"
+]
 
 # --- 2. Check if files exist ---
 print(f"Checking if files exist: {', '.join(FILES_TO_UPLOAD)}")

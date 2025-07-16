@@ -11,7 +11,7 @@ class InvoiceData(BaseModel):
     """
     Invoice data model, defines key information extracted from invoices.
     """
-    invoice_number: str = Field(..., description="Invoice number")
+    invoice_number: Optional[str] = Field(None, description="Invoice number")
     invoice_date: date = Field(..., description="Invoice date, format YYYY-MM-DD")
     vendor_name: str = Field(..., description="Vendor name")
     total_amount: Decimal = Field(..., description="Total invoice amount")
@@ -41,7 +41,6 @@ class ExtractionResponse(BaseModel):
     success: bool = Field(..., description="Whether extraction was successful")
     data: Optional[InvoiceData] = Field(None, description="Extracted invoice data")
     message: Optional[str] = Field(None, description="Prompt message, especially when errors occur")
-    confidence: Optional[float] = Field(None, description="Confidence level of extraction results")
 
 
 class HealthResponse(BaseModel):

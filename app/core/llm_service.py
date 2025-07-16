@@ -5,13 +5,14 @@ LLM service module, responsible for interacting with large language models for i
 """
 import json
 import logging
+import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 from openai import OpenAI, APIStatusError
 
 from app.models.schemas import ExtractionResponse, InvoiceData
-from app.prompts.base_prompts import PromptBuilder
+from app.prompts.base_prompts import BasePromptTemplates
 from config.config import settings
 
 # Set up logging
@@ -27,8 +28,8 @@ class LLMService:
 
     def __init__(self):
         """Initialize LLM service by creating clients based on configuration."""
-        self.text_client = self._create_client("text")
-        self.vision_client = self._create_client("vision") if settings.USE_VISION_API else None
+        self.text_client = self._create_client(multimodal=False)
+        self.vision_client = self._create_client(multimodal=True) if settings.USE_MULTIMODAL else None
         self.temperature = settings.LLM_TEMPERATURE
 
     def _create_client(self, multimodal: bool) -> Optional[OpenAI]:
@@ -37,14 +38,16 @@ class LLMService:
             api_key = settings.TEXT_MODEL_API_KEY
             base_url = settings.TEXT_MODEL_API_URL
             model_name = settings.TEXT_MODEL_NAME
+            model_type = "Text"
         else:
             api_key = settings.MULTIMODAL_MODEL_API_KEY
             base_url = settings.MULTIMODAL_MODEL_API_URL
             model_name = settings.MULTIMODAL_MODEL_NAME
+            model_type = "Multimodal"
 
         if not api_key:
             logger.warning(
-                f"model API key not set. This functionality will not be available.")
+                f"{model_type} model API key not set. This functionality will not be available.")
             return None
 
         try:
@@ -57,6 +60,15 @@ class LLMService:
             logger.error(f"Error initializing client: {str(e)}")
             return None
 
+    def _handle_api_error(self, error, model_type: str) -> ExtractionResponse:
+        """Common error handling for API calls."""
+        if isinstance(error, APIStatusError):
+            logger.error(f"{model_type} LLM API call failed with status {error.status_code}: {error.response.text}")
+            return ExtractionResponse(success=False, data=None, message=f"API Error: {error.response.text}")
+        else:
+            logger.error(f"{model_type} LLM API call failed: {str(error)}")
+            return ExtractionResponse(success=False, data=None, message=f"Extraction failed: {str(error)}")
+        
     def extract_invoice_data_with_images(self, images: List[Dict[str, Any]]) -> ExtractionResponse:
         """
         Extract key information from invoice images using the configured multimodal model.
@@ -66,7 +78,7 @@ class LLMService:
             return ExtractionResponse(success=False, data=None, message="Vision model is not configured.")
 
         try:
-            user_message_content = [{"type": "text", "text": PromptBuilder.build_image_extraction_prompt()}]
+            user_message_content = [{"type": "text", "text":  BasePromptTemplates.user_prompt(True)}]
             for img in images:
                 user_message_content.append({
                     "type": "image_url",
@@ -75,20 +87,20 @@ class LLMService:
 
             messages = [
                 {"role": "system",
-                 "content": "You are a professional invoice analysis expert. Extract key information from the provided invoice images and return it in JSON format."},
+                 "content": BasePromptTemplates.invoice_extraction_base()},
                 {"role": "user", "content": user_message_content}
             ]
-
+            start_time = time.time()
             response = self.vision_client.chat.completions.create(
                 model=settings.MULTIMODAL_MODEL_NAME,
                 messages=messages,
                 temperature=self.temperature,
                 response_format={"type": "json_object"}
             )
-
+            elapsed_time = time.time() - start_time  # 计算耗时
+            logger.info(f"LLM response in {elapsed_time:.2f} seconds consume {response.usage.total_tokens} tokens with content： {response.choices[0].message.content}")
             result = json.loads(response.choices[0].message.content)
             validated_result = self._validate_and_clean_result(result)
-            # 创建 InvoiceData 对象，然后将其包装在 ExtractionResponse 中
             from datetime import datetime
             from decimal import Decimal
             
@@ -101,14 +113,10 @@ class LLMService:
                     total_amount=Decimal(str(validated_result.get("total_amount", 0)))
                 )
             
-            return ExtractionResponse(success=True, data=invoice_data, confidence=0.90)
+            return ExtractionResponse(success=True, data=invoice_data)
 
-        except APIStatusError as e:
-            logger.error(f"Multimodal LLM API call failed with status {e.status_code}: {e.response.text}")
-            return ExtractionResponse(success=False, data=None, message=f"API Error: {e.response.text}")
-        except Exception as e:
-            logger.error(f"Multimodal LLM API call failed: {str(e)}")
-            return ExtractionResponse(success=False, data=None, message=f"Extraction failed: {str(e)}")
+        except (APIStatusError, Exception) as e:
+            return self._handle_api_error(e, "Multimodal")
 
     def extract_invoice_data(self, text: str, is_scanned: bool) -> ExtractionResponse:
         """
@@ -118,23 +126,24 @@ class LLMService:
             logger.error("Text client not initialized. Cannot process text.")
             return ExtractionResponse(success=False, data=None, message="Text model is not configured.")
 
-        prompt = PromptBuilder.build_extraction_prompt(text, is_scanned)
+        prompt = BasePromptTemplates.user_prompt(False, text)
 
         try:
+            start_time = time.time()
             response = self.text_client.chat.completions.create(
                 model=settings.TEXT_MODEL_NAME,
                 messages=[
                     {"role": "system",
-                     "content": "You are a professional invoice analysis expert. Extract key information from invoice text and return it in JSON format."},
+                     "content": BasePromptTemplates.system_prompt(is_scanned)},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=self.temperature,
                 response_format={"type": "json_object"}
             )
-
+            elapsed_time = time.time() - start_time
+            logger.info(f"LLM response in {elapsed_time:.2f} seconds consume {response.usage.total_tokens} tokens with content： {response.choices[0].message.content}")
             result = json.loads(response.choices[0].message.content)
             validated_result = self._validate_and_clean_result(result)
-            # 创建 InvoiceData 对象，然后将其包装在 ExtractionResponse 中
             from datetime import datetime
             from decimal import Decimal
             
@@ -147,16 +156,22 @@ class LLMService:
                     total_amount=Decimal(str(validated_result.get("total_amount", 0)))
                 )
             
-            return ExtractionResponse(success=True, data=invoice_data, confidence=0.85)
+            return ExtractionResponse(success=True, data=invoice_data)
 
-        except APIStatusError as e:
-            logger.error(f"Text LLM API call failed with status {e.status_code}: {e.response.text}")
-            return ExtractionResponse(success=False, data=None, message=f"API Error: {e.response.text}")
-        except Exception as e:
-            logger.error(f"Text LLM API call failed: {str(e)}")
-            return ExtractionResponse(success=False, data=None, message=f"Extraction failed: {str(e)}")
+        except (APIStatusError, Exception) as e:
+            return self._handle_api_error(e, "Text")
 
     def _validate_and_clean_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and clean the extraction result from the LLM.
+        
+        Performs validation and normalization on each field to ensure consistency.
+        
+        Args:
+            result: Raw extraction result from LLM
+            
+        Returns:
+            Dict containing validated and cleaned invoice data
+        """
         validated_result = {}
         # Process invoice number
         if "invoice_number" in result and result["invoice_number"]:

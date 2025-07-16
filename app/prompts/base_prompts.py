@@ -55,9 +55,48 @@ class BasePromptTemplates:
         return base + additional
 
     @staticmethod
+    def system_prompt(is_scanned: bool) -> str:
+        """
+        Generate the system prompt based on whether the invoice is scanned or digital.
+        
+        Args:
+            is_scanned: Whether the invoice is scanned (True) or digital (False)
+            
+        Returns:
+            str: Appropriate system prompt for the invoice type
+        """
+        if is_scanned:
+            prompt = BasePromptTemplates.scanned_invoice_extraction()
+        else:
+            prompt = BasePromptTemplates.invoice_extraction_base()
+        return prompt
+
+    @staticmethod
+    def user_prompt(is_image: bool, text: str = '') -> str:
+        """
+        Generate the user prompt for invoice information extraction.
+        
+        Args:
+            is_image: Whether the input is an image (True) or text (False)
+            text: The invoice text to process (only used when is_image is False)
+            
+        Returns:
+            str: Formatted user prompt for the LLM
+        """
+        base_prompt = "Extract the JSON format data from "
+        if is_image:
+            return base_prompt + "the provided invoice images."
+        else:
+            return base_prompt + "the following text:\n" + text
+
+
+    @staticmethod
     def line_items_extraction() -> str:
         """
         Prompt template for extracting invoice line items (extended feature).
+        
+        This template is designed to extract detailed information about each
+        line item in an invoice, including descriptions, quantities, prices, and totals.
         
         Returns:
             str: Prompt template for extracting detailed line items from invoices.
@@ -108,72 +147,3 @@ class BasePromptTemplates:
             
             If it is not an invoice, please specify the possible type of document in invoice_type.
         """
-
-    @staticmethod
-    def image_invoice_extraction() -> str:
-        """
-        Prompt template for invoice information extraction from images.
-        
-        Returns:
-            str: Complete prompt template for image-based invoice extraction.
-        """
-        return """
-            Please extract the following key information from the provided invoice image:
-            - invoice_number (Invoice number)
-            - invoice_date (Invoice date, format YYYY-MM-DD)
-            - vendor_name (Vendor name)
-            - total_amount (Total invoice amount, numeric value only)
-            
-            Return only the result in JSON format, do not include other explanations. Example output format:
-            {
-              "invoice_number": "INV-12345",
-              "invoice_date": "2024-07-10",
-              "vendor_name": "Acme Corp",
-              "total_amount": 1025.75
-            }
-            
-            If a field cannot be determined, please use null value.
-            
-            The invoice image is as follows:
-        """
-
-
-class PromptBuilder:
-    """
-    Prompt builder, used for assembling and customizing prompts.
-    
-    This class provides utility methods to build complete prompts by combining
-    templates with actual content to be processed.
-    """
-
-    @staticmethod
-    def build_extraction_prompt(text: str, is_scanned: bool = False) -> str:
-        """
-        Build invoice extraction prompt.
-        
-        Args:
-            text: Invoice text content to be processed.
-            is_scanned: Whether the invoice is from a scanned document.
-            
-        Returns:
-            str: Complete prompt string ready for LLM processing.
-        """
-        if is_scanned:
-            prompt = BasePromptTemplates.scanned_invoice_extraction()
-        else:
-            prompt = BasePromptTemplates.invoice_extraction_base()
-
-        # Add text to be processed
-        full_prompt = prompt + "\n\nInvoice text:\n" + text
-
-        return full_prompt
-
-    @staticmethod
-    def build_image_extraction_prompt() -> str:
-        """
-        Build prompt for image-based invoice information extraction.
-        
-        Returns:
-            str: Complete prompt string for image-based invoice extraction.
-        """
-        return BasePromptTemplates.image_invoice_extraction()
