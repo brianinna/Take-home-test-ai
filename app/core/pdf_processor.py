@@ -10,6 +10,10 @@ from typing import Dict, Any, Optional
 
 import pdfplumber
 import pytesseract
+from pdfminer.pdfdocument import PDFEncryptionError
+
+from app.exceptions.MyException import PDFProcessingException, BaseExtractionException, PDFPasswordProtectedException, \
+    PDFPageExtractionException
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -47,20 +51,32 @@ class PDFProcessor:
             - images: List of image data (base64 encoded) if using vision API
             - page_count: Number of PDF pages
             - tables: Extracted table data
+            
+        Raises:
+            PDFReadException: If the PDF file cannot be read or is corrupted
+            PDFPasswordProtectedException: If the PDF file is password protected
+            PDFPageExtractionException: If page content cannot be extracted
+            PDFProcessingException: For other PDF processing errors
         """
+        temp_file_path = None
         try:
             with pdfplumber.open(io.BytesIO(file_content)) as pdf:
+                # Check if PDF is password protected
+
                 # Get total page count
                 page_count = len(pdf.pages)
 
-                # Otherwise extract text
+                # Extract text
                 text = ""
 
                 for page in pdf.pages:
-                    # Extract page text
-                    page_text = page.extract_text() or ""
-                    text += page_text
-                    text += "\n--- Page Break ---\n"
+                    try:
+                        # Extract page text
+                        page_text = page.extract_text() or ""
+                        text += page_text
+                    except Exception as page_error:
+                        logger.error(f"Error extracting page content: {str(page_error)}")
+                        raise PDFPageExtractionException(f"Error on page {page.page_number}: {str(page_error)}")
 
                 # Check if it's a scanned PDF
                 is_scanned = self._detect_scanned_pdf(pdf, text)
@@ -69,22 +85,17 @@ class PDFProcessor:
                 images = []
                 if is_scanned:
                     temp_file_path = f"{uuid.uuid4()}.pdf"
-                    try:
-                        with open(temp_file_path, 'wb') as f:
-                            f.write(file_content)
-                        # convert to images
-                        pdf_images = self._convert_pdf_to_pages(temp_file_path)
+                    with open(temp_file_path, 'wb') as f:
+                        f.write(file_content)
+                    # convert to images
+                    pdf_images = self._convert_pdf_to_pages(temp_file_path)
 
-                        if self.use_vision_api:
-                            # base64
-                            images = self._convert_images_to_base64(pdf_images)
-                            text = "[using LLM handle the data]"
-                        else:
-                            # ocr
-                            text = self._process_images_with_ocr(pdf_images)
-                    finally:
-                        if os.path.exists(temp_file_path):
-                            os.remove(temp_file_path)
+                    if self.use_vision_api:
+                        # base64
+                        images = self._convert_images_to_base64(pdf_images)
+                    else:
+                        # ocr
+                        text = self._process_images_with_ocr(pdf_images)
 
             result = {
                 "is_scanned": is_scanned,
@@ -96,13 +107,18 @@ class PDFProcessor:
                 result["images"] = images
 
             return result
-
         except Exception as e:
             logger.error(f"PDF processing error: {str(e)}")
-            # Ensure cleaning up temporary file
-            if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+            if isinstance(e,PDFEncryptionError):
+                raise PDFPasswordProtectedException()
+            if isinstance(e, BaseExtractionException):
+                raise e
+            # Default to general PDFProcessingException for unhandled errors
+            raise PDFProcessingException(f"PDF processing error: {str(e)}")
+        finally:
+            # Clean up temporary file if it exists
+            if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-            raise
 
     def _detect_scanned_pdf(self, pdf, extracted_text: str) -> bool:
         """
@@ -124,7 +140,6 @@ class PDFProcessor:
         has_text = len(extracted_text) > 10
 
         # Check if there are image elements
-        has_images = False
         for i, page in enumerate(pdf.pages):
             page_area = page.width * page.height
             # If there are images
@@ -137,8 +152,7 @@ class PDFProcessor:
             if coverage_ratio > 0.5:
                 return True
 
-        # have image and almost no text
-        if not has_text and has_images:
+        if not has_text:
             return True
 
         return False
@@ -158,7 +172,6 @@ class PDFProcessor:
             for page in pdf.pages:
                 page_text = page.extract_text() or ""
                 text += page_text
-                text += "\n--- Page Break ---\n"
         return text
 
     def _convert_pdf_to_pages(self, pdf_path: str) -> list:
@@ -238,7 +251,6 @@ class PDFProcessor:
                         config='--psm 6'  # Assume block text
                     )
                     text += page_text
-                    text += "\n--- Page Break ---\n"
                 except Exception as e:
                     logger.error(f"OCR processing error on page {i + 1}: {str(e)}")
                     text += f"\n[OCR Error on Page {i + 1}]\n"

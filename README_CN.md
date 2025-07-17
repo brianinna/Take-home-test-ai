@@ -86,7 +86,7 @@ sudo apt install poppler-utils
 2. 在项目根目录创建`.env`文件：
 
 ```
-OPENAI_API_KEY=your_api_key_here
+TEXT_MODEL_API_KEY=your_api_key_here
 ```
 
 ## 启动服务
@@ -200,6 +200,41 @@ invoice-extraction-api/
 └── README.md                 # 项目文档
 ```
 
+## 异常错误码参考表
+
+| 错误码 | 异常类 | 描述 |
+|------------|-----------------|-------------|
+| **1000** | **BaseExtractionException** | 所有提取错误的基类异常 |
+| **1100-1199** | **输入异常** | |
+| 1100 | InputException | 输入数据相关异常的基类 |
+| 1101 | InvalidFileFormatException | 无效的文件格式，仅支持PDF文件 |
+| 1102 | EmptyFileException | 上传的文件为空 |
+| 1103 | FileTooLargeException | 文件过大，请压缩后重试 |
+| **1200-1299** | **PDF处理异常** | |
+| 1200 | PDFProcessingException | PDF处理相关异常的基类 |
+| 1201 | PDFReadException | 无法读取PDF文件，文件可能已损坏 |
+| 1202 | PDFPasswordProtectedException | PDF文件受密码保护，无法处理 |
+| 1203 | PDFPageExtractionException | 无法从PDF中提取页面内容 |
+| **1300-1399** | **OCR处理异常** | |
+| 1300 | OCRProcessingException | OCR处理相关异常的基类 |
+| 1301 | OCRFailedException | OCR文字识别失败 |
+| 1302 | LowQualityImageException | 图像质量过低，无法准确识别 |
+| **1400-1499** | **数据提取异常** | |
+| 1400 | DataExtractionException | 数据提取相关异常的基类 |
+| 1401 | MissingRequiredFieldException | 无法提取必填字段 |
+| 1402 | InvalidDateFormatException | 提取的日期格式无效 |
+| 1403 | InvalidAmountFormatException | 提取的金额格式无效 |
+| **1500-1599** | **LLM处理异常** | |
+| 1500 | LLMProcessingException | LLM处理相关异常的基类 |
+| 1501 | LLMRequestFailedException | LLM API请求失败 |
+| 1502 | LLMResponseParsingException | 无法解析LLM响应 |
+| 1503 | LLMQuotaExceededException | LLM API配额已用尽 |
+| **1900-1999** | **系统异常** | |
+| 1900 | SystemException | 系统相关异常的基类 |
+| 1901 | DatabaseException | 数据库操作异常 |
+| 1902 | ConfigurationException | 系统配置异常 |
+| 1903 | ServiceUnavailableException | 服务暂时不可用，请稍后再试 |
+
 ## 常见问题解答
 
 ### Q: 为什么我的OCR识别结果不准确?
@@ -218,7 +253,7 @@ A: 默认配置针对英语发票优化。对于其他语言，请修改`app/cor
 A: 是的，项目包含Dockerfile。使用以下命令构建和运行Docker容器:
 ```bash
 docker build -t invoice-extraction-api .
-docker run -p 8000:8000 -e OPENAI_API_KEY=your_api_key invoice-extraction-api
+docker run -p 8000:8000 -e TEXT_MODEL_API_KEY=your_api_key invoice-extraction-api
 ```
 
 ---

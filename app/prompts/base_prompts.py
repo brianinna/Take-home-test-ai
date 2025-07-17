@@ -25,16 +25,31 @@ class BasePromptTemplates:
             - invoice_date (Invoice date, format YYYY-MM-DD)
             - vendor_name (Vendor name)
             - total_amount (Total invoice amount, numeric value only)
+            - line_items (List of all products/services with details)
             
             Return only the result in JSON format, do not include other explanations. Example output format:
             {
               "invoice_number": "INV-12345",
               "invoice_date": "2024-07-10",
               "vendor_name": "Acme Corp",
-              "total_amount": 1025.75
+              "total_amount": 1025.75,
+              "line_items": [
+                {
+                  "description": "Product A",
+                  "quantity": 2,
+                  "unit_price": 100.00,
+                  "line_total": 200.00
+                },
+                {
+                  "description": "Service B",
+                  "quantity": 1,
+                  "unit_price": 50.00,
+                  "line_total": 50.00
+                }
+              ]
             }
             
-            If a field cannot be determined, please use null value.
+            For line_items, extract all products/services listed in the invoice. If quantity, unit_price cannot be determined, use null. If a field cannot be determined, please use null value.
         """
 
     @staticmethod
