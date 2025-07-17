@@ -118,7 +118,7 @@ class LLMService:
                     invoice_date=datetime.strptime(validated_result.get("invoice_date", ""), "%Y-%m-%d").date() if validated_result.get("invoice_date") else None,
                     vendor_name=validated_result.get("vendor_name", ""),
                     total_amount=Decimal(str(validated_result.get("total_amount", 0))),
-                    itemInfo=validated_result.get("line_items")
+                    item_info=validated_result.get("line_items")
 
                 )
             return ExtractionData(code=0, data=invoice_data, message= "success")

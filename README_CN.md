@@ -23,7 +23,15 @@
 - Windows, macOS 或 Linux
 - 网络连接(用于OpenAI API调用)
 
-## 安装步骤
+使用Docker启动或者克隆代码启动
+## 1.1 Dokcer 启动
+```bash
+docker build -t invoice-extraction-api .
+docker run -p 8000:8000 -e TEXT_MODEL_API_KEY=your_api_key invoice-extraction-api
+```
+
+## 1.2 本地安装步骤
+
 
 ### 1. 克隆项目
 
@@ -132,16 +140,46 @@ print(response.json())
 **成功响应示例:**
 ```json
 {
-  "success": true,
-  "invoice_number": "INV-12345",
-  "invoice_date": "2024-07-10",
-  "vendor_name": "Acme Corp",
-  "total_amount": 1025.75,
-  "metadata": {
-    "is_scanned": false,
-    "confidence": 0.95,
-    "processing_time": 1.23
-  }
+    "code": 0,
+    "data": [
+        {
+            "code": 0,
+            "data": {
+                "invoice_date": "2024-03-15",
+                "invoice_number": "INV-2024-001",
+                "item_info": [
+                    {
+                        "description": "Web Development Services",
+                        "line_total": "5000.0",
+                        "quantity": "40.0",
+                        "unit_price": "125.0"
+                    },
+                    {
+                        "description": "Database Setup and Configuration",
+                        "line_total": "1200.0",
+                        "quantity": "8.0",
+                        "unit_price": "150.0"
+                    },
+                    {
+                        "description": "SSL Certificate (Annual)",
+                        "line_total": "99.0",
+                        "quantity": "1.0",
+                        "unit_price": "99.0"
+                    },
+                    {
+                        "description": "Domain Registration (Annual)",
+                        "line_total": "15.0",
+                        "quantity": "1.0",
+                        "unit_price": "15.0"
+                    }
+                ],
+                "total_amount": "6835.01",
+                "vendor_name": "TechPro Solutions"
+            },
+            "message": "success"
+        }
+    ],
+    "message": "Success"
 }
 ```
 
@@ -249,12 +287,7 @@ A: 请确保您在项目根目录运行命令，并且已正确安装所有依�
 ### Q: 如何处理多种语言的发票?
 A: 默认配置针对英语发票优化。对于其他语言，请修改`app/core/ocr_engine.py`中的语言参数，并确保在Tesseract中安装了相应的语言包。
 
-### Q: 项目支持Docker部署吗?
-A: 是的，项目包含Dockerfile。使用以下命令构建和运行Docker容器:
-```bash
-docker build -t invoice-extraction-api .
-docker run -p 8000:8000 -e TEXT_MODEL_API_KEY=your_api_key invoice-extraction-api
-```
+
 
 ---
 

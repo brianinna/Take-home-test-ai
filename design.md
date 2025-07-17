@@ -2,15 +2,18 @@
 
 ## 1. Project Overview
 
-This project aims to build a Python-based service that extracts structured data from PDF invoices, both scanned (image-based) and digital (text-based). The service will expose a RESTful API that accepts PDF invoices and returns structured JSON data containing key invoice information.
+This project aims to build a Python-based service that extracts structured data from PDF invoices, both scanned (image-based) and digital (text-based). The service exposes a RESTful API that accepts PDF invoices and returns structured JSON data containing key invoice information. The system leverages AI technologies including OCR (Optical Character Recognition) and LLM (Large Language Models) to process documents and extract structured data.
 
 ### 1.1 Key Features
 
 - PDF type detection (scanned vs. digital)
-- Information extraction from both types of PDFs
-- RESTful API for invoice processing
-- Structured JSON output with key invoice fields
-- Error handling and validation
+- Information extraction from both types of PDFs using customized processing pipelines
+- OCR processing for scanned documents using Tesseract
+- LLM integration for intelligent data extraction (OpenAI API)
+- Support for vision-capable LLMs for direct processing of scanned invoices
+- RESTful API with FastAPI framework
+- Comprehensive error handling and validation
+- Structured JSON output with key invoice fields including line items
 
 ## 2. System Architecture
 
@@ -31,251 +34,330 @@ The system follows a modular design with clear separation of concerns to ensure 
 
 #### 2.2.1 API Layer
 - FastAPI framework for RESTful endpoints
-- Input validation and error handling
-- File upload handling
+- Input validation and error handling with Pydantic models
+- File upload handling through multipart/form-data
+- CORS middleware for cross-origin requests
+- Global exception handling with custom error codes
+- Health check endpoints
 
 #### 2.2.2 Processing Layer
-- PDF type detection (scanned vs. digital)
-- PDF text extraction / OCR processing
-- Document preprocessing
+- PDF type detection (scanned vs. digital) using content analysis
+- Digital PDF text extraction with pdfplumber
+- OCR processing using Tesseract for scanned documents
+- PDF to image conversion with pdf2image/poppler
+- Image preprocessing for improved OCR quality
+- Temporary file management
 
 #### 2.2.3 Extraction Layer
-- LLM integration for information extraction
-- Prompt management
-- Information validation
+- LLM integration with OpenAI API (GPT models)
+- Support for vision-capable LLMs for direct image processing
+- Configurable prompt templates for different extraction scenarios
+- Multi-model fallback mechanisms
+- Result validation and data cleaning
 
 #### 2.2.4 Response Layer
-- JSON formatting
-- Response validation
-- Error handling
+- Structured JSON formatting with Pydantic models
+- Field-level validation and type conversion
+- Metadata enrichment (confidence scores, processing metrics)
+- Comprehensive error handling with detailed error codes
 
 ## 3. Information Extraction Approaches
 
-### 3.1 Digital PDF Processing
+### 3.1 PDF Type Detection
 
-1. Extract text directly using PyPDF2 or pdfplumber
+The system uses a sophisticated heuristic approach to detect whether a PDF is scanned or digital:
+
+1. Text content analysis - evaluates text extraction quality and quantity
+2. Character density evaluation - analyzes the distribution of text across pages
+3. Image coverage assessment - checks if pages are predominantly images
+
+This multi-faceted approach achieves high accuracy in differentiating between digital and scanned PDFs.
+
+### 3.2 Digital PDF Processing
+
+1. Extract text directly using pdfplumber
+   - Table structure preservation
+   - Page-by-page extraction with error handling
+   - Text content analysis
 2. Process extracted text with LLM for information extraction
+   - Structured prompting with field specifications
+   - Format normalization and validation
 
-### 3.2 Scanned PDF Processing
+### 3.3 Scanned PDF Processing
 
 #### Approach 1: Traditional OCR + LLM
-- Use Tesseract or other OCR tools to extract text
-- Pass extracted text to LLM for information extraction
+- Convert PDF pages to images using pdf2image/poppler
+- Preprocess images for optimal OCR results (grayscale conversion, contrast enhancement)
+- Extract text using Tesseract OCR with configurable parameters
+- Apply specialized OCR-aware prompting to LLM for handling recognition errors
 
 #### Approach 2: Multi-modal Visual Language Models
 - Process PDF pages as images using vision-capable LLMs
-- Direct extraction from visual content
+- Convert images to base64 for API transmission
+- Direct extraction from visual content using specialized prompts
+- Handle multi-page documents with aggregation logic
 
-#### Approach 3: Document AI Services
-- Use specialized document processing APIs
-
-#### Approach 4: Hybrid Approach (Recommended)
-- High-quality OCR with position information
-- Reconstruct document layout
-- Enhanced prompts with spatial information
 
 ## 4. LLM Integration
 
-### 4.1 Model Selection
+### 4.1 Model Selection and Configuration
 
-- Primary: OpenAI GPT-4/GPT-4o for main extraction tasks
-- Alternative: Claude 3 for specialized extraction
-- Local Option: Llama 3 or Mistral for fallback/simpler tasks
+- Primary: OpenAI models (GPT-4/GPT-3.5) for text processing
+- Multimodal: GPT-4 Vision for direct image processing when enabled
+- Configuration through environment variables:
+  ```
+  TEXT_MODEL_API_KEY=your_api_key
+  TEXT_MODEL_API_URL=optional_custom_endpoint
+  TEXT_MODEL_NAME=model_name
+  MULTIMODAL_MODEL_API_KEY=vision_api_key
+  ```
+- Fallback mechanisms between models when primary fails
 
 ### 4.2 Prompt Engineering
 
-- Structured prompt templates for different extraction tasks
-- Few-shot learning with examples
-- Chain-of-thought prompting for complex extractions
+- Specialized prompt templates for different document types and extraction tasks
+- OCR-aware prompting for handling recognition errors in scanned documents
+- Structured output format specification with JSON examples
+- System and user prompts separation for clear context setting
 
 ### 4.3 Prompt Management
 
-```
-/prompts
-├── templates/         # Base templates
-├── examples/          # Few-shot examples
-└── engine.py          # Prompt assembly and management
-```
+The system uses a structured prompt management system implemented in `app/prompts/base_prompts.py`:
 
-## 5. Test Client Design
-
-### 5.1 API Test Client
-
-- Python-based test client for API validation
-- Supports both single and batch file processing
-- Uses real PDF files for testing rather than empty placeholders
-- Performs file existence validation before attempting upload
-
-### 5.1 Client Architecture
-
-The test client provides a simple way to interact with the Invoice Extraction API. It supports both single file and batch processing capabilities.
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│             │     │             │     │             │
-│  File Input │────▶│  API Client │────▶│  Results    │
-│  Handler    │     │  Interface  │     │  Display    │
-│             │     │             │     │             │
-└─────────────┘     └─────────────┘     └─────────────┘
+```python
+class BasePromptTemplates:
+    @staticmethod
+    def invoice_extraction_base() -> str:
+        # Base prompt for invoice data extraction
+    
+    @staticmethod
+    def scanned_invoice_extraction() -> str:
+        # Enhanced prompt for OCR-processed invoices
+    
+    @staticmethod
+    def system_prompt(is_scanned: bool) -> str:
+        # Generate appropriate system prompt based on document type
+    
+    @staticmethod
+    def user_prompt(is_image: bool, text: str = '') -> str:
+        # Generate user prompt for image or text input
+    
+    @staticmethod
+    def line_items_extraction() -> str:
+        # Specialized prompt for extracting invoice line items
 ```
 
-### 5.2 Multi-File Support
+### 4.4 Result Validation and Processing
 
-The client supports multiple input methods:
+The extracted results undergo comprehensive validation and cleaning:
 
-1. **Single File Path**: Process a single invoice PDF
-2. **Directory Path**: Process all PDF files in a directory
-3. **File List**: Process multiple specific PDF files provided as a list
+- Date format normalization (conversion to YYYY-MM-DD)
+- Numerical value cleaning (removing currency symbols, commas)
+- Confidence scoring based on extraction completeness
+- Type conversion and validation for all fields
+- Handling of missing or uncertain data
 
-This flexible approach allows for both targeted testing and batch processing scenarios.
+## 5. API Specification
+
+### 5.1 Base Configuration
+
+The API is built with FastAPI and follows RESTful principles:
+
+```python
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    description="Invoice data extraction service API, supporting digital and scanned PDF processing.",
+    version="0.1.0",
+)
+```
+
+### 5.2 Endpoints
+
+#### GET /
+- **Description**: Welcome endpoint with API information
+- **Response**: Basic API information and links to documentation
+
+#### GET /api/v1/health
+- **Description**: Health check endpoint
+- **Response**: Service health status
+
+#### POST /api/v1/extract
+- **Description**: Extract data from invoice PDF
+- **Request**: Multipart form with PDF file
+- **Response**: Extracted invoice data in JSON format
 
 ### 5.3 API Interface
 
-The client uses simple HTTP requests with the Python `requests` library:
+The client can interact with the API using standard HTTP libraries:
 
 ```python
-# Simple API request implementation
-response = requests.post(api_url, files={"files": (file_name, file_data, "application/pdf")})
+# Python example with requests
+import requests
+
+url = "http://localhost:8000/api/v1/extract"
+files = {"file": open("invoice.pdf", "rb")}
+
+response = requests.post(url, files=files)
+print(response.json())
+```
+
+```bash
+# curl example
+curl -X POST -F "file=@/path/to/invoice.pdf" http://localhost:8000/api/v1/extract
 ```
 
 This implementation:
-- Uses standard library components
-- Minimizes dependencies
-- Provides clear error handling
-- Supports both single and batch file processing
+- Uses standard HTTP multipart/form-data for file uploads
+- Provides detailed error information in responses
+- Returns structured JSON data with validation
 
 ## 6. Project Structure
 
+The project follows a modular structure with clear separation of concerns:
+
 ```
-project/
+invoice-extraction-api/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                 # Application entry point
+│   ├── main.py                 # Application entry point and FastAPI setup
 │   ├── routers/
-│   │   └── invoice_router.py   # API routes
+│   │   └── invoice_router.py   # API routes definition
 │   ├── core/
-│   │   ├── pdf_processor.py    # PDF handling
-│   │   ├── ocr_engine.py       # OCR processing
-│   │   ├── llm_service.py      # LLM integration
-│   │   └── extraction.py       # Information extraction
+│   │   ├── pdf_processor.py    # PDF handling and type detection
+│   │   ├── ocr_engine.py       # OCR processing with Tesseract
+│   │   └── llm_service.py      # LLM integration with OpenAI
+│   ├── exceptions/
+│   │   └── MyException.py      # Custom exception classes
 │   ├── models/
-│   │   └── schemas.py          # Data models/schemas
+│   │   └── schemas.py          # Pydantic data models
 │   ├── prompts/
-│   │   ├── base_prompts.py     # Base prompt templates
-│   │   ├── extraction.py       # Extraction prompts
-│   │   └── validation.py       # Validation prompts
+│   │   └── base_prompts.py     # LLM prompt templates
 │   └── utils/
-│       ├── validators.py       # Data validators
-│       └── helpers.py          # Helper functions
+│       └── helpers.py          # Utility functions
 ├── tests/
-│   ├── test_pdf_processor.py
-│   ├── test_extraction.py
-│   └── test_api.py
+│   ├── unit/
+│   │   ├── core/
+│   │   │   ├── test_pdf_processor.py
+│   │   │   └── test_llm_service.py
+│   │   └── api/
+│   │       └── test_endpoints.py
+│   └── fixtures/
+│       └── sample_invoices/    # Test PDF files
 ├── config/
-│   └── config.py               # Configuration
-├── requirements.txt
-├── Dockerfile
-└── README.md
+│   └── config.py               # Configuration settings
+├── requirements.txt            # Python dependencies
+├── .env.example                # Environment variables template
+├── Dockerfile                  # Container definition
+├── README.md                   # English documentation
+├── README_CN.md               # Chinese documentation
+└── design.md                  # Design documentation
 ```
 
-## 6. API Specification
+## 7. API Specification
 
-### 6.1 Endpoints
+### 7.1 Endpoints
 
-#### POST /extract
-- **Description**: Process one or more PDF invoices
+#### GET /
+- **Description**: API welcome page with basic information
+- **Response Format**: JSON
+- **Example Response**: 
+  ```json
+  {
+    "message": "Welcome to the Invoice Data Extraction API",
+    "version": "0.1.0",
+    "docs_url": "/docs"
+  }
+  ```
+
+#### GET /api/v1/health
+- **Description**: Service health check endpoint
+- **Response Format**: JSON
+- **Example Response**: 
+  ```json
+  { "status": "ok" }
+  ```
+
+#### POST /api/v1/extract
+- **Description**: Process PDF invoice and extract structured data
 - **Request Format**: multipart/form-data
 - **Parameters**: 
-  - `files`: One or more PDF files
-- **Response**: JSON array of extraction results
+  - `file`: Single PDF file (required)
+- **Response Format**: JSON with extraction results
 
-#### GET /health
-- **Description**: Service health check
-- **Response**: `{ "status": "ok" }`
+### 7.2 Example Responses
 
-### 6.2 Example Response
+#### Successful Response
 
 ```json
 {
+  "success": true,
   "invoice_number": "INV-12345",
   "invoice_date": "2024-07-10",
   "vendor_name": "Acme Corp",
-  "total_amount": 1025.75
+  "total_amount": 1025.75,
+  "line_items": [
+    {
+      "description": "Product A",
+      "quantity": 2,
+      "unit_price": 100.00,
+      "line_total": 200.00
+    },
+    {
+      "description": "Service B",
+      "quantity": 1,
+      "unit_price": 50.00,
+      "line_total": 50.00
+    }
+  ],
+  "metadata": {
+    "is_scanned": false,
+    "confidence": 0.95,
+    "processing_time": 1.23
+  }
 }
 ```
 
-## 7. Quality Assurance
+#### Error Response
 
-### 7.1 Testing Strategy
+```json
+{
+  "success": false,
+  "error": {
+    "code": 1101,
+    "message": "Invalid file format, only PDF files are supported"
+  }
+}
+```
 
-- Unit tests for individual components
-- Integration tests for end-to-end workflows
-- Performance testing for response time and throughput
+### 7.3 Error Codes
 
-### 7.2 Accuracy Measurement
+The API uses a structured error code system for clear error reporting:
 
-- Field-level accuracy metrics
-- Document-level accuracy metrics
-- Continuous monitoring and improvement
+| Error Code | Exception Class | Description |
+|------------|-----------------|-------------|
+| **1000** | **BaseExtractionException** | Base class for all extraction errors |
+| **1100-1199** | **Input Exceptions** | |
+| 1100 | InputException | Base class for input data-related exceptions |
+| 1101 | InvalidFileFormatException | Invalid file format, only PDF files are supported |
+| 1102 | EmptyFileException | The uploaded file is empty |
+| 1103 | FileTooLargeException | File is too large, please compress and retry |
+| **1200-1299** | **PDF Processing Exceptions** | |
+| 1200 | PDFProcessingException | Base class for PDF processing-related exceptions |
+| 1201 | PDFReadException | Cannot read PDF file, it may be corrupted |
+| 1202 | PDFPasswordProtectedException | The PDF file is password protected |
+| 1203 | PDFPageExtractionException | Failed to extract page content from PDF |
+| **1300-1399** | **OCR Processing Exceptions** | |
+| 1300 | OCRProcessingException | Base class for OCR processing-related exceptions |
+| 1301 | OCRFailedException | OCR text recognition failed |
+| 1302 | LowQualityImageException | Image quality is too low for accurate recognition |
+| **1400-1499** | **Data Extraction Exceptions** | |
+| 1400 | DataExtractionException | Base class for data extraction-related exceptions |
+| 1401 | MissingRequiredFieldException | Failed to extract a required field |
+| 1402 | InvalidDateFormatException | The extracted date format is invalid |
+| 1403 | InvalidAmountFormatException | The extracted amount format is invalid |
+| **1500-1599** | **LLM Processing Exceptions** | |
+| 1500 | LLMProcessingException | Base class for LLM processing-related exceptions |
+| 1501 | LLMRequestFailedException | LLM API request failed |
+| 1502 | LLMResponseParsingException | Failed to parse the LLM response |
+| 1503 | LLMQuotaExceededException | LLM API quota has been exceeded |
 
-## 8. Extensibility
-
-The architecture is designed to be extensible in the following ways:
-
-### 8.1 Short-term Extensions
-
-- Line item extraction
-- Additional invoice fields
-- Support for more document types
-
-### 8.2 Long-term Extensions
-
-- Multi-language support
-- Custom extraction models for specific vendors
-- Automated data validation and correction
-- Integration with accounting systems
-
-## 9. Implementation Plan
-
-### 9.1 Phase 1: Core Functionality
-
-- Basic project setup and API endpoints
-- PDF type detection
-- Basic extraction for digital PDFs
-- Simple OCR for scanned PDFs
-- Minimal LLM integration
-
-### 9.2 Phase 2: Enhanced Features
-
-- Advanced OCR processing
-- Sophisticated LLM prompting
-- Improved accuracy and validation
-- Support for more complex invoice formats
-
-### 9.3 Phase 3: Optimization & Extensions
-
-- Performance optimization
-- Additional data fields extraction
-- Line item extraction
-- Containerization
-
-## 10. Challenges and Mitigations
-
-### 10.1 OCR Quality
-
-**Challenge**: Poor OCR quality from low-resolution scans
-**Mitigation**: Pre-processing images, using high-quality OCR engines, applying LLM for error correction
-
-### 10.2 Invoice Format Variability
-
-**Challenge**: Wide variation in invoice layouts and formats
-**Mitigation**: Template-based approaches, adaptive prompting, few-shot examples
-
-### 10.3 LLM Reliability
-
-**Challenge**: Inconsistent extraction by LLMs
-**Mitigation**: Prompt engineering, result validation, fallback mechanisms
-
-## 11. Conclusion
-
-This design provides a flexible and extensible framework for invoice data extraction. By leveraging modern AI/ML techniques, particularly LLMs, the system can handle a wide variety of invoice formats and layouts while maintaining high accuracy. The modular architecture allows for future enhancements and optimizations.

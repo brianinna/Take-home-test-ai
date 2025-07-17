@@ -31,7 +31,7 @@ class InvoiceDataExtended(InvoiceData):
     """
     Extended invoice data model with line items (extension goal).
     """
-    itemInfo: Optional[List[InvoiceLineItem]] = Field(None, description="Invoice line items")
+    item_info: Optional[List[InvoiceLineItem]] = Field(None, description="Invoice line items")
 
 
 class ExtractionData(BaseModel):
